@@ -3,7 +3,7 @@ from Py4GWCoreLib.Skillbar import SkillBar
 from Py4GWCoreLib.Agent import Agent
 import time
 
-module_name = "Simple Follower"
+module_name = "Spiker Follower"
 
 # Add this near the top with other global variables
 is_following = False
@@ -23,13 +23,14 @@ class GameAreas:
 follow_distance = GameAreas().Area
 
 checkbox_state = True
+
 def DrawWindow():
     global checkbox_state, is_following, is_attacking, start_time
 
     if PyImGui.begin("Following/Fighting bot"):
         # Title and Credits Section
         PyImGui.text("=== Follow/Fight Bot ===")
-        PyImGui.text("Credits: Shiva and Apo")
+        PyImGui.text("Credits: Shiva,Apo and Disasterus")
         PyImGui.separator()
 
         # Status Section

@@ -377,18 +377,18 @@ def get_best_target(enemy_ids):
     return best_target, best_priority, best_role
 
 # Example usage:
-    """enemy_list = [... list of enemy agent IDs ...]
-    target_id, priority, role = get_best_target(enemy_list)
+enemy_list = [... list of enemy agent IDs ...]
+target_id, priority, role = get_best_target(enemy_list)
 
-    if target_id and role == 'Healer':
-        # Priority target healer logic
-        print(f"Found healer target: {Agent.GetName(target_id)}")
-        # Add your attack logic here
-    elif target_id:
-        # Regular target logic
-        print(f"Found regular target: {Agent.GetName(target_id)}")
-        # Add your attack logic here
-"""
+if target_id and role == 'Healer':
+    # Priority target healer logic
+    print(f"Found healer target: {Agent.GetName(target_id)}")
+    # Add your attack logic here
+elif target_id:
+    # Regular target logic
+    print(f"Found regular target: {Agent.GetName(target_id)}")
+    # Add your attack logic here
+
 class EnemyTargeting:
     def __init__(self):
         # Define profession priorities (lower number = higher priority)
@@ -472,18 +472,17 @@ def get_best_target(enemy_ids):
     return best_target, best_priority, best_role
 
 # Example usage:
-    """enemy_list = [... list of enemy agent IDs ...]
-    target_id, priority, role = get_best_target(enemy_list)
+enemy_list = [... list of enemy agent IDs ...]
+target_id, priority, role = get_best_target(enemy_list)
 
-    if target_id and role == 'Healer':
-        # Priority target healer logic
-        print(f"Found healer target: {Agent.GetName(target_id)}")
-        # Add your attack logic here
-    elif target_id:
-        # Regular target logic
-        print(f"Found regular target: {Agent.GetName(target_id)}")
-        # Add your attack logic here
-    """
+if target_id and role == 'Healer':
+    # Priority target healer logic
+    print(f"Found healer target: {Agent.GetName(target_id)}")
+    # Add your attack logic here
+elif target_id:
+    # Regular target logic
+    print(f"Found regular target: {Agent.GetName(target_id)}")
+    # Add your attack logic here
 
 
 
