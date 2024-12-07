@@ -285,3 +285,7 @@ def get_called_target():
         if player.called_target_id != 0:
             return player.called_target_id
     return 0
+
+
+
+#This are testin files for doing functions seperate
