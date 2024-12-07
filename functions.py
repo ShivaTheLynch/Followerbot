@@ -1,3 +1,8 @@
+from Py4GWCoreLib import *
+from Py4GWCoreLib.Skillbar import SkillBar
+from Py4GWCoreLib.Agent import Agent
+
+
 def GetEnergyAgentCost(skill_id, agent_id):
     """Retrieve the actual energy cost of a skill by its ID and effects.
 
