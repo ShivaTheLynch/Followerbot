@@ -43,6 +43,10 @@ class Overlay:
         center = PyOverlay.Point3D(center_x, center_y, center_z)
         self.overlay_instance.DrawPoly3D(center, radius, color, numsegments, thickness)
 
+    def DrawText(self, x, y, text, color=0xFFFFFFFF, centered = True, scale=1.0):
+        pos = PyOverlay.Point2D(int(x), int(y))
+        self.overlay_instance.DrawText(pos, text, color, centered, scale)
+
     def DrawText3D(self, x, y, z, text, color=0xFFFFFFFF, autoZ= True, centered = True, scale=1.0):
         pos = PyOverlay.Point3D(x, y, z)
         self.overlay_instance.DrawText3D(pos, text, color, autoZ, centered,scale)
