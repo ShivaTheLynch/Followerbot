@@ -1,4 +1,3 @@
-
 import stat
 from tkinter.filedialog import dialogstates
 import Py4GW

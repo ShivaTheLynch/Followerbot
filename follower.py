@@ -11,6 +11,8 @@ is_attacking = False
 start_time = 0
 map_entry_time = time.time()  # New variable to track map time
 last_map_id = Map.GetMapID()  # Track map changes
+global current_skill_slot
+current_skill_slot = 0
 
 class GameAreas:
     def __init__(self):
@@ -124,6 +126,100 @@ def DisplayInfoTab():
         
         PyImGui.end_tab_item()
 
+def DisplayTeamStats():
+    """Display team statistics in a separate tab."""
+    if PyImGui.begin_tab_item("Team Stats"):
+        PyImGui.text("=== Team Members ===")
+        PyImGui.indent(10)
+        
+        # Get all allies from the agent array
+        try:
+            agent_array = AgentArray.GetAllyArray()  # Updated to use GetAllyArray()
+            if not agent_array:
+                Py4GW.Console.Log("Follower", "GetAllyArray returned an empty or invalid result.", Py4GW.Console.MessageType.Warning)
+            else:
+                for agent_id in agent_array:
+                    name = Agent.GetName(agent_id)
+                    hp = Agent.GetHealth(agent_id)
+                    max_hp = Agent.GetMaxHealth(agent_id)
+                    energy = Agent.GetEnergy(agent_id)
+                    max_energy = Agent.GetMaxEnergy(agent_id)
+                    
+                    # Determine if the agent is a player or hero
+                    if Party.Players.GetLoginNumberByAgentID(agent_id) != 0:
+                        agent_type = "Player"
+                    elif Party.Heroes.GetHeroIDByAgentID(agent_id) != 0:
+                        agent_type = "Hero"
+                        hero_id = Party.Heroes.GetHeroIDByAgentID(agent_id)
+                        name = Party.Heroes.GetHeroNameById(hero_id)  # Get hero name
+                    else:
+                        agent_type = "Unknown"
+                    
+                    # Calculate actual HP and energy values
+                    current_hp = int(hp * max_hp)
+                    max_hp_value = int(max_hp)
+                    current_energy = int(energy * max_energy)
+                    max_energy_value = int(max_energy)
+                    
+                    PyImGui.text(f"{agent_type}: {name}")
+                    PyImGui.indent(20)
+                    PyImGui.text(f"HP: {current_hp}/{max_hp_value}")
+                    PyImGui.text(f"Energy: {current_energy}/{max_energy_value}")
+                    PyImGui.unindent(20)
+                    PyImGui.spacing()
+        except Exception as e:
+            Py4GW.Console.Log("Follower", f"Error retrieving ally array: {str(e)}", Py4GW.Console.MessageType.Error)
+        
+        PyImGui.unindent(10)
+        PyImGui.end_tab_item()
+
+def DisplayPlayerStats():
+    """Display player statistics in a separate tab."""
+    global current_skill_slot
+    
+    if PyImGui.begin_tab_item("Player Stats"):
+        PyImGui.text("=== Player Statistics ===")
+        PyImGui.indent(10)
+        
+        # Get player information
+        player_id = Player.GetAgentID()
+        name = Agent.GetName(player_id)
+        hp = Agent.GetHealth(player_id)
+        max_hp = Agent.GetMaxHealth(player_id)
+        energy = Agent.GetEnergy(player_id)
+        max_energy = Agent.GetMaxEnergy(player_id)
+        
+        # Calculate actual HP and energy values
+        current_hp = int(hp * max_hp)
+        max_hp_value = int(max_hp)
+        current_energy = int(energy * max_energy)
+        max_energy_value = int(max_energy)
+        
+        # Display player stats
+        PyImGui.text(f"Name: {name}")
+        PyImGui.text(f"HP: {current_hp}/{max_hp_value}")
+        PyImGui.text(f"Energy: {current_energy}/{max_energy_value}")
+        
+        # Debug output
+        PyImGui.text(f"Debug - Current Skill Slot: {current_skill_slot}")
+        
+        # Display actual current/last used skill
+        if current_skill_slot > 0 and current_skill_slot <= 8:
+            skill_id = SkillBar.GetSkillIDBySlot(current_skill_slot)
+            if skill_id:
+                skill_name = Skill.GetName(skill_id)
+                PyImGui.text(f"Current/Last Used Skill:")
+                PyImGui.indent(20)
+                PyImGui.text(f"Slot: {current_skill_slot}")
+                PyImGui.text(f"ID: {skill_id}")
+                PyImGui.text(f"Name: {skill_name}")
+                PyImGui.unindent(20)
+        else:
+            PyImGui.text("No skill currently active")
+        
+        PyImGui.unindent(10)
+        PyImGui.end_tab_item()
+
 def DrawWindow():
     global checkbox_state, is_following, is_attacking, start_time
 
@@ -180,8 +276,10 @@ def DrawWindow():
 
                 PyImGui.end_tab_item()
             
-            DisplaySkillInfo()  # Skills tab
-            DisplayInfoTab()    # New info tab
+            DisplaySkillInfo()   # Skills tab
+            DisplayInfoTab()     # Info tab
+            DisplayTeamStats()   # Team stats tab
+            DisplayPlayerStats() # Player stats tab
             
             PyImGui.end_tab_bar()
     PyImGui.end()
@@ -476,7 +574,7 @@ def get_called_target():
     return 0
 
 def runbot():
-    global module_name, follow_distance, is_following
+    global module_name, follow_distance, is_following, current_skill_slot
     try:
             if Party.IsPartyLoaded():
                 leader_id = Party.GetPartyLeaderID()
@@ -507,7 +605,10 @@ def runbot():
                             current_time = time.time()
                             skill_number = int((current_time % 16) / 2) + 1  # Cycles through skills 1-8 every 2 seconds
                             if skill_number <= 8:  # Safety check
-                                if IsSkillReady2(skill_number) and HasEnoughEnergy(SkillBar.GetSkillIDBySlot(skill_number)):
+                                skill_id = SkillBar.GetSkillIDBySlot(skill_number)
+                                if skill_id and IsSkillReady2(skill_number) and HasEnoughEnergy(skill_id):
+                                    Py4GW.Console.Log("Follower", f"Using skill {skill_number} (ID: {skill_id})", Py4GW.Console.MessageType.Info)
+                                    current_skill_slot = skill_number
                                     SkillBar.UseSkill(skill_number)
                             return
                     # If no enemies or after combat, follow leader if too far
@@ -561,6 +662,7 @@ def runfollower():
         Py4GW.Console.Log(module_name, f"Stack trace: {traceback.format_exc()}", Py4GW.Console.MessageType.Error)
     finally:
         pass
+
 def main():
     DrawWindow()
     if is_following:
@@ -571,3 +673,4 @@ def main():
 # This ensures that Main() is called when the script is executed directly.
 if __name__ == "__main__":
     main()
+
