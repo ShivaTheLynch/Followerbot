@@ -1,4 +1,5 @@
 from Py4GWCoreLib import *
+import time
 
 module_name = "SimpleMovement"
 OUTPOST_ID = 389  # Your outpost ID
@@ -67,6 +68,8 @@ class StateMachineVars:
         self.ping_handler = Py4GW.PingHandler()
         self.timer = Py4GW.Timer()
         self.timer_check = 0
+        self.last_skill_time = 0
+        self.current_skill_index = 1
 
 bot_vars = BotVars()
 bot_vars.window_module = ImGui.WindowModule(module_name, window_name="Simple Movement", window_size=(300, 200))
@@ -74,9 +77,43 @@ FSM_vars = StateMachineVars()
 
 # Helper Functions
 def StartBot():
-    global bot_vars
+    global bot_vars, FSM_vars
     if not bot_vars.has_env_reset:
         ResetEnvironment()
+        # If we're already in the farm map, find nearest coordinate
+        if Map.GetMapID() == 200:  # Assuming 200 is your farm map ID
+            try:
+                my_id = Player.GetAgentID()
+                if my_id:  # Make sure we have a valid player ID
+                    my_x, my_y = Agent.GetXY(my_id)
+                    
+                    # Find the nearest point in the path with error handling
+                    min_distance = float('inf')
+                    nearest_index = 0
+                    
+                    for i, coord in enumerate(map_path):
+                        try:
+                            distance = ((my_x - coord[0]) ** 2 + (my_y - coord[1]) ** 2) ** 0.5
+                            if distance < min_distance:
+                                min_distance = distance
+                                nearest_index = i
+                        except Exception as e:
+                            Py4GW.Console.Log("SimpleMovement", f"Error calculating distance for point {i}: {str(e)}", Py4GW.Console.MessageType.Error)
+                            continue
+                    
+                    # Only update if we found a valid point
+                    if min_distance != float('inf'):
+                        FSM_vars.map_pathing.reset()
+                        FSM_vars.map_pathing.current_index = nearest_index
+                        Py4GW.Console.Log("SimpleMovement", f"Starting from nearest point: {map_path[nearest_index]}", Py4GW.Console.MessageType.Info)
+                        FSM_vars.state_machine.force_state("Follow Map Path")
+                    
+            except Exception as e:
+                Py4GW.Console.Log("SimpleMovement", f"Error finding nearest coordinate: {str(e)}", Py4GW.Console.MessageType.Error)
+                # Fallback to starting from the beginning
+                FSM_vars.map_pathing.reset()
+                FSM_vars.state_machine.reset()
+        
         bot_vars.has_env_reset = True
     bot_vars.bot_started = True
 
@@ -120,6 +157,50 @@ def ResetEnvironment():
     FSM_vars.timer.stop()
     FSM_vars.timer_check = 0
 
+def GetEnergyAgentCost(skill_id, agent_id):
+    """Retrieve the actual energy cost of a skill by its ID and effects.
+    [... rest of docstring ...]
+    """
+    # [... entire function implementation ...]
+
+def get_energy_cost(skill_id):
+    player_agent_id = Player.GetAgentID()
+    return GetEnergyAgentCost(skill_id, player_agent_id)    
+
+def HasEnoughEnergy(skill_id):
+    player_agent_id = Player.GetAgentID()
+    energy = Agent.GetEnergy(player_agent_id)
+    max_energy = Agent.GetMaxEnergy(player_agent_id)
+    energy_points = int(energy * max_energy)
+    
+    # Add error checking for energy cost
+    energy_cost = GetEnergyAgentCost(skill_id, player_agent_id)
+    if energy_cost is None:
+        return False  # If we can't determine energy cost, assume we don't have enough
+    
+    return energy_cost <= energy_points
+
+def IsSkillReady(skill_id):
+    skill = SkillBar.GetSkillData(SkillBar.GetSlotBySkillID(skill_id))
+    recharge = skill.recharge
+    return recharge == 0
+
+def IsSkillReady2(skill_slot):
+    skill = SkillBar.GetSkillData(skill_slot)
+    return skill.recharge == 0
+
+def get_called_target():
+    """Get the first called target from party members.
+    
+    Returns:
+        int: Agent ID of the called target, or 0 if no called targets exist
+    """
+    players = Party.GetPlayers()
+    for player in players:
+        if player.called_target_id != 0:
+            return player.called_target_id
+    return 0
+
 # Configure State Machine
 FSM_vars.state_machine.AddState(name="Check Map",
     execute_fn=lambda: Routines.Transition.TravelToOutpost(OUTPOST_ID) if Map.GetMapID() != OUTPOST_ID else None,
@@ -153,9 +234,56 @@ FSM_vars.state_machine.AddState(name="Get Blessing",
     transition_delay_ms=1500)
 
 FSM_vars.state_machine.AddState(name="Follow Map Path",
-    execute_fn=lambda: Routines.Movement.FollowPath(FSM_vars.map_pathing, FSM_vars.movement_handler),
+    execute_fn=lambda: handle_map_path(),
     exit_condition=lambda: Routines.Movement.IsFollowPathFinished(FSM_vars.map_pathing, FSM_vars.movement_handler),
     run_once=False)
+
+def handle_map_path():
+    """Handle both movement and combat during map path traversal"""
+    global FSM_vars
+    my_id = Player.GetAgentID()
+    my_x, my_y = Agent.GetXY(my_id)
+    current_time = time.time()
+    
+    # Check for called target first
+    called_target = get_called_target()
+    
+    # Get nearby enemies
+    enemy_array = AgentArray.GetEnemyArray()
+    enemy_array = AgentArray.Filter.ByDistance(enemy_array, (my_x, my_y), 3000)
+    enemy_array = AgentArray.Filter.ByAttribute(enemy_array, 'IsAlive')
+    
+    # If there's a called target or nearby enemy, handle combat
+    if called_target or len(enemy_array) > 0:
+        target_id = None
+        
+        # Handle enemy targeting
+        if called_target and called_target in enemy_array:
+            target_id = called_target
+        else:
+            not_hexed_array = AgentArray.Filter.ByAttribute(enemy_array, 'IsHexed', negate=True)
+            target_id = not_hexed_array[0] if len(not_hexed_array) > 0 else enemy_array[0]
+        
+        if target_id:
+            Player.ChangeTarget(target_id)
+            target_x, target_y = Agent.GetXY(target_id)
+            distance_to_target = ((my_x - target_x) ** 2 + (my_y - target_y) ** 2) ** 0.5
+            
+            # If target is too far, interact to move closer
+            if distance_to_target > 1200:  # Spell range
+                Routines.Targeting.InteractTarget()
+                return
+            
+            # Only use skills when in range
+            if current_time - FSM_vars.last_skill_time >= 2.0:
+                if IsSkillReady2(FSM_vars.current_skill_index):
+                    SkillBar.UseSkill(FSM_vars.current_skill_index)
+                    Py4GW.Console.Log("Follower", f"Using skill {FSM_vars.current_skill_index} at distance {distance_to_target:.0f}", Py4GW.Console.MessageType.Info)
+                    FSM_vars.last_skill_time = current_time
+                    FSM_vars.current_skill_index = FSM_vars.current_skill_index % 8 + 1
+    else:
+        # Only continue path following if no enemies are nearby
+        Routines.Movement.FollowPath(FSM_vars.map_pathing, FSM_vars.movement_handler)
 
 def DrawWindow():
     global bot_vars, FSM_vars
