@@ -1,4 +1,4 @@
- from Py4GWCoreLib import *
+from Py4GWCoreLib import *
 import time
 
 module_name = "SimpleMovement"
@@ -70,6 +70,8 @@ class StateMachineVars:
         self.timer_check = 0
         self.last_skill_time = 0
         self.current_skill_index = 1
+        self.current_loot_target = None
+        self.loot_items = FSM("Loot")
 
 bot_vars = BotVars()
 bot_vars.window_module = ImGui.WindowModule(module_name, window_name="Simple Movement", window_size=(300, 200))
@@ -80,20 +82,20 @@ def StartBot():
     global bot_vars, FSM_vars
     if not bot_vars.has_env_reset:
         ResetEnvironment()
-        # If we're already in the farm map, find nearest coordinate
-        if Map.GetMapID() == 200:  # Assuming 200 is your farm map ID
+        
+        current_map = Map.GetMapID()
+        # If we're in the farm map (200), proceed with finding nearest coordinate
+        if current_map == 200:
             try:
                 my_id = Player.GetAgentID()
-                if my_id:  # Make sure we have a valid player ID
-                    my_x, my_y = Agent.GetXY(my_id)
-                    
+                if my_id:
                     # Find the nearest point in the path with error handling
                     min_distance = float('inf')
                     nearest_index = 0
                     
                     for i, coord in enumerate(map_path):
                         try:
-                            distance = ((my_x - coord[0]) ** 2 + (my_y - coord[1]) ** 2) ** 0.5
+                            distance = ((my_id - coord[0]) ** 2 + (my_id - coord[1]) ** 2) ** 0.5
                             if distance < min_distance:
                                 min_distance = distance
                                 nearest_index = i
@@ -106,13 +108,15 @@ def StartBot():
                         FSM_vars.map_pathing.reset()
                         FSM_vars.map_pathing.current_index = nearest_index
                         Py4GW.Console.Log("SimpleMovement", f"Starting from nearest point: {map_path[nearest_index]}", Py4GW.Console.MessageType.Info)
-                        FSM_vars.state_machine.force_state("Follow Map Path")
-                    
+                        FSM_vars.state_machine.set_state("Follow Map Path")
             except Exception as e:
                 Py4GW.Console.Log("SimpleMovement", f"Error finding nearest coordinate: {str(e)}", Py4GW.Console.MessageType.Error)
-                # Fallback to starting from the beginning
                 FSM_vars.map_pathing.reset()
                 FSM_vars.state_machine.reset()
+        # If we're not in the outpost (389) or farm map (200), travel to outpost
+        elif current_map != OUTPOST_ID:
+            Routines.Transition.TravelToOutpost(OUTPOST_ID)
+            FSM_vars.state_machine.set_state("Check Map")
         
         bot_vars.has_env_reset = True
     bot_vars.bot_started = True
@@ -156,6 +160,8 @@ def ResetEnvironment():
     FSM_vars.state_machine.reset()
     FSM_vars.timer.stop()
     FSM_vars.timer_check = 0
+    FSM_vars.current_loot_target = None
+    FSM_vars.loot_items.reset()
 
 def GetEnergyAgentCost(skill_id, agent_id):
     """Retrieve the actual energy cost of a skill by its ID and effects.
@@ -238,23 +244,66 @@ FSM_vars.state_machine.AddState(name="Follow Map Path",
     exit_condition=lambda: Routines.Movement.IsFollowPathFinished(FSM_vars.map_pathing, FSM_vars.movement_handler),
     run_once=False)
 
-def handle_map_path():
-    """Handle both movement and combat during map path traversal"""
+FSM_vars.loot_items.AddState(name="Select Item",
+                    execute_fn=lambda: FSM_vars.current_loot_target is not None and Agent.IsItem(FSM_vars.current_loot_target) and Player.ChangeTarget(FSM_vars.current_loot_target),
+                    transition_delay_ms=1000)
+FSM_vars.loot_items.AddState(name="PickUpItem",
+                    execute_fn=lambda: FSM_vars.current_loot_target is not None and Agent.IsItem(FSM_vars.current_loot_target) and Routines.Targeting.InteractTarget(),
+                    transition_delay_ms=1000)
+FSM_vars.loot_items.AddState(name="Wait for Loot to Finish",
+                    exit_condition=lambda: WaitForLoot(),
+                    run_once=False)
+
+# Add new combat state
+FSM_vars.state_machine.AddState(name="Combat",
+    execute_fn=lambda: handle_combat(),
+    exit_condition=lambda: not is_in_combat(),
+    run_once=False)
+
+def is_in_combat():
+    """Check if we should be in combat state"""
+    try:
+        # If we're currently looting, don't enter combat
+        if FSM_vars.current_loot_target is not None:
+            return False
+            
+        my_id = Player.GetAgentID()
+        my_x, my_y = Agent.GetXY(my_id)
+        
+        # Check for called target
+        called_target = get_called_target()
+        
+        # Get nearby enemies
+        enemy_array = AgentArray.GetEnemyArray()
+        enemy_array = AgentArray.Filter.ByDistance(enemy_array, (my_x, my_y), 3000)
+        enemy_array = AgentArray.Filter.ByAttribute(enemy_array, 'IsAlive')
+        
+        return called_target or len(enemy_array) > 0
+    except Exception as e:
+        Py4GW.Console.Log(module_name, f"Error in is_in_combat: {str(e)}", Py4GW.Console.MessageType.Error)
+        return False
+
+def handle_combat():
+    """Handle combat interactions"""
     global FSM_vars
-    my_id = Player.GetAgentID()
-    my_x, my_y = Agent.GetXY(my_id)
-    current_time = time.time()
-    
-    # Check for called target first
-    called_target = get_called_target()
-    
-    # Get nearby enemies
-    enemy_array = AgentArray.GetEnemyArray()
-    enemy_array = AgentArray.Filter.ByDistance(enemy_array, (my_x, my_y), 3000)
-    enemy_array = AgentArray.Filter.ByAttribute(enemy_array, 'IsAlive')
-    
-    # If there's a called target or nearby enemy, handle combat
-    if called_target or len(enemy_array) > 0:
+    try:
+        # Check for loot first
+        if LootFound():
+            FSM_vars.state_machine.set_state("Follow Map Path")
+            return
+
+        my_id = Player.GetAgentID()
+        my_x, my_y = Agent.GetXY(my_id)
+        current_time = time.time()
+        
+        # Check for called target
+        called_target = get_called_target()
+        
+        # Get nearby enemies
+        enemy_array = AgentArray.GetEnemyArray()
+        enemy_array = AgentArray.Filter.ByDistance(enemy_array, (my_x, my_y), 3000)
+        enemy_array = AgentArray.Filter.ByAttribute(enemy_array, 'IsAlive')
+        
         target_id = None
         
         # Handle enemy targeting
@@ -269,17 +318,114 @@ def handle_map_path():
             target_x, target_y = Agent.GetXY(target_id)
             distance_to_target = ((my_x - target_x) ** 2 + (my_y - target_y) ** 2) ** 0.5
             
-            # Check if enough time has passed since last skill use (2 seconds)
+            # If target is too far, interact to move closer
+            if distance_to_target > 1200:  # Spell range
+                Routines.Targeting.InteractTarget()
+                return
+            
+            # Only use skills when in range
             if current_time - FSM_vars.last_skill_time >= 2.0:
-                if distance_to_target <= 1200:  # Typical spell range
-                    if IsSkillReady2(FSM_vars.current_skill_index):
-                        SkillBar.UseSkill(FSM_vars.current_skill_index)
-                        Py4GW.Console.Log("Follower", f"Using skill {FSM_vars.current_skill_index} at distance {distance_to_target:.0f}", Py4GW.Console.MessageType.Info)
-                        FSM_vars.last_skill_time = current_time
-                        FSM_vars.current_skill_index = FSM_vars.current_skill_index % 8 + 1
-    else:
-        # Only continue path following if no enemies are nearby
+                if IsSkillReady2(FSM_vars.current_skill_index):
+                    SkillBar.UseSkill(FSM_vars.current_skill_index)
+                    Py4GW.Console.Log("Follower", f"Using skill {FSM_vars.current_skill_index} at distance {distance_to_target:.0f}", Py4GW.Console.MessageType.Info)
+                    FSM_vars.last_skill_time = current_time
+                    FSM_vars.current_skill_index = FSM_vars.current_skill_index % 8 + 1
+                    
+    except Exception as e:
+        Py4GW.Console.Log(module_name, f"Error in handle_combat: {str(e)}", Py4GW.Console.MessageType.Error)
+
+def handle_map_path():
+    """Handle movement and check for combat triggers during map path traversal"""
+    global FSM_vars
+    try:
+        # Check for loot first
+        if LootFound():
+            if (FSM_vars.current_loot_target is not None and 
+                Agent.Exists(FSM_vars.current_loot_target)):
+                FSM_vars.loot_items.set_state("Select Item")
+                return
+        
+        # Check if we should enter combat state
+        if is_in_combat():
+            FSM_vars.state_machine.set_state("Combat")
+            return
+        
+        # Continue path following if no combat or loot
         Routines.Movement.FollowPath(FSM_vars.map_pathing, FSM_vars.movement_handler)
+                        
+        # Check if we need to reset to initial state
+        if not FSM_vars.state_machine.current_state:
+            FSM_vars.state_machine.set_state("Check Map")
+        
+    except Exception as e:
+        Py4GW.Console.Log(module_name, f"Error in handle_map_path: {str(e)}", Py4GW.Console.MessageType.Error)
+
+def UpdateLootTarget(max_distance=1250):
+    global FSM_vars
+    try:
+        if IfActionIsPending():
+            return None
+
+        # Reset loot target if it's no longer valid
+        if FSM_vars.current_loot_target is not None:
+            try:
+                if not Agent.IsItem(FSM_vars.current_loot_target) or not Agent.Exists(FSM_vars.current_loot_target):
+                    FSM_vars.current_loot_target = None
+            except:
+                FSM_vars.current_loot_target = None
+            return None
+
+        # Only look for a new loot target if we don't have one
+        xy = Player.GetXY()
+        if xy is None:
+            return None
+
+        try:
+            item_array = AgentArray.GetItemArray()
+            if not item_array:
+                return None
+            
+            for item in item_array:
+                if (item is not None and 
+                    Agent.Exists(item) and 
+                    Agent.IsItem(item) and 
+                    Utils.Distance(xy, Agent.GetXY(item)) <= max_distance):
+                    FSM_vars.current_loot_target = item
+                    return item
+        except:
+            return None
+
+    except Exception as e:
+        Py4GW.Console.Log(module_name, f"Error in UpdateLootTarget: {str(e)}", Py4GW.Console.MessageType.Error)
+        FSM_vars.current_loot_target = None
+    
+    return None
+
+def LootFound():
+    try:
+        if not Agent.IsAlive(Player.GetAgentID()):
+            return False
+        
+        UpdateLootTarget(max_distance=1250)
+        return (FSM_vars.current_loot_target is not None and 
+                Agent.Exists(FSM_vars.current_loot_target) and 
+                Agent.IsItem(FSM_vars.current_loot_target))
+    except:
+        return False
+
+def WaitForLoot():
+    try:
+        if IfActionIsPending():
+            return False
+        
+        if not LootFound():
+            return True
+        else:
+            SetPendingAction(2000)
+            return False
+    except Exception as e:
+        Py4GW.Console.Log(module_name, f"Error in WaitForLoot: {str(e)}", Py4GW.Console.MessageType.Error)
+        return True
 
 def DrawWindow():
     global bot_vars, FSM_vars
