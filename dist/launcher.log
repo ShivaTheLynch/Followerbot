@@ -1,0 +1,20 @@
+2024-12-11 19:36:08,066 - INFO - Accounts saved successfully
+2024-12-11 19:36:08,067 - ERROR - GW path does not exist: C:\Program Files\Guild Wars\Gw.exe
+2024-12-11 19:41:48,930 - INFO - Loaded 1 accounts
+2024-12-11 19:42:25,422 - INFO - Accounts saved successfully
+2024-12-11 19:43:25,485 - INFO - Accounts saved successfully
+2024-12-11 19:43:31,707 - ERROR - Error patching client: (299, 'EnumProcessModules', 'Only part of a ReadProcessMemory or WriteProcessMemory request was completed.')
+2024-12-11 19:43:31,707 - ERROR - Failed to patch client
+2024-12-11 19:45:13,734 - ERROR - Error patching client: (299, 'EnumProcessModules', 'Only part of a ReadProcessMemory or WriteProcessMemory request was completed.')
+2024-12-11 19:45:13,735 - ERROR - Failed to patch client
+2024-12-11 19:45:19,261 - ERROR - Error patching client: (299, 'EnumProcessModules', 'Only part of a ReadProcessMemory or WriteProcessMemory request was completed.')
+2024-12-11 19:45:19,261 - ERROR - Failed to patch client
+2024-12-11 19:49:46,767 - INFO - Loaded 3 accounts
+2024-12-11 19:50:57,500 - INFO - Loaded 3 accounts
+2024-12-11 19:51:09,855 - INFO - Loaded 3 accounts
+2024-12-11 19:52:11,683 - INFO - Loaded 3 accounts
+2024-12-11 19:52:34,548 - INFO - Loaded 3 accounts
+2024-12-11 20:10:53,814 - INFO - Loaded 3 accounts
+2024-12-11 20:11:08,769 - INFO - Loaded 3 accounts
+2024-12-11 20:16:23,879 - INFO - Loaded 3 accounts
+2024-12-11 20:17:34,169 - INFO - Loaded 3 accounts

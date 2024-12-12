@@ -1,0 +1,43 @@
+{
+    "accounts": [
+        {
+            "character": "Character Name",
+            "email": "your.email@example.com",
+            "gwpath": "C:\\Program Files\\Guild Wars\\Gw.exe",
+            "password": "your_password",
+            "extraargs": "",
+            "elevated": false,
+            "title": "Main Account",
+            "active": false,
+            "state": "Inactive",
+            "guid": "14c6cb35-67f6-40aa-a3da-ef66bf5044a2",
+            "process_handle": null
+        },
+        {
+            "character": "Avihs Swallowood",
+            "email": "touchwise@live.nl",
+            "gwpath": "C:/Users/Shadow/Desktop/GW/Guild Wars/Gw.exe",
+            "password": "Lars1994!",
+            "extraargs": "",
+            "elevated": false,
+            "title": "Avihs",
+            "active": false,
+            "state": "Inactive",
+            "guid": "89e74c0b-67d7-4d99-8c40-c6c1b71fccbc",
+            "process_handle": null
+        },
+        {
+            "character": "Shiva Spiritsmoker",
+            "email": "lvo.vanoostrum@gmail.com",
+            "gwpath": "C:/Users/Shadow/Desktop/GW/gw2/Gw.exe",
+            "password": "Keilani1302!",
+            "extraargs": "",
+            "elevated": false,
+            "title": "Shiva",
+            "active": false,
+            "state": "Inactive",
+            "guid": "34a5f792-037b-4e04-b84f-9e74f9007b67",
+            "process_handle": null
+        }
+    ]
+}
