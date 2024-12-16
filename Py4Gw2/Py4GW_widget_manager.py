@@ -110,7 +110,7 @@ def main():
                         PyImGui.table_set_column_index(0)
                         widget_info["enabled"] = PyImGui.checkbox(f"{widget_name}", widget_info["enabled"])
                         PyImGui.table_set_column_index(1)
-                        widget_info["configuring"] = ImGui.toggle_button(ICON_COG + f"##Configure-{widget_name}", widget_info["configuring"])
+                        widget_info["configuring"] = ImGui.toggle_button(IconsFontAwesome5.ICON_COG + "##Configure" + widget_name, widget_info["configuring"])
 
                     PyImGui.end_table()
         PyImGui.end()

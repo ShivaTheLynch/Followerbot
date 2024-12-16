@@ -16,7 +16,6 @@ import psutil
 from ctypes import wintypes
 import threading
 from Patcher import Patcher
-import sys
 # Add these constants
 PROCESS_ALL_ACCESS = 0x1F0FFF
 VIRTUAL_MEM = 0x1000 | 0x2000  # MEM_COMMIT | MEM_RESERVE
@@ -86,13 +85,7 @@ class DebugWindow:
 class GWLauncher:
     def __init__(self):
         # Set up file paths first
-        if getattr(sys, 'frozen', False):
-            # If the application is run as a bundle (compiled executable)
-            self.app_directory = os.path.dirname(sys.executable)
-        else:
-            # If the application is run from a Python interpreter
-            self.app_directory = os.path.dirname(os.path.abspath(__file__))
-        
+        self.app_directory = os.path.dirname(os.path.abspath(__file__))
         self.accounts_file = os.path.join(self.app_directory, "accounts.json")
         
         # Add menu IDs
@@ -327,13 +320,7 @@ class GWLauncher:
         self.debug_window.log(f"Saving to: {self.accounts_file}")
         
         try:
-            # Ensure the directory exists
-            directory = os.path.dirname(self.accounts_file)
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-                self.debug_window.log(f"Created directory: {directory}")
-
-            # Create backup of existing file if it exists
+            # Create backup of existing file
             if os.path.exists(self.accounts_file):
                 backup_path = f"{self.accounts_file}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 os.replace(self.accounts_file, backup_path)
@@ -725,23 +712,11 @@ class GWLauncher:
         
         # Create dialog window
         dialog_class = "GWAccountDialog"
-        
-        # First try to unregister the class if it exists
-        try:
-            win32gui.UnregisterClass(dialog_class, None)
-        except:
-            pass
-        
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = self.dialog_proc
         wc.lpszClassName = dialog_class
         wc.hbrBackground = win32gui.GetStockObject(win32con.WHITE_BRUSH)
-        
-        try:
-            win32gui.RegisterClass(wc)
-        except Exception as e:
-            self.debug_window.log(f"Error registering dialog class: {str(e)}")
-            return
+        win32gui.RegisterClass(wc)
         
         # Center dialog
         screen_width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)

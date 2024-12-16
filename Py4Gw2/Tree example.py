@@ -37,7 +37,7 @@ def DrawWindow():
             # End of the Root Node
             PyImGui.tree_pop()
         
-        PyImGui.end()
+    PyImGui.end()
 
 # Entry point for the script
 def main():
