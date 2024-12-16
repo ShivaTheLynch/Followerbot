@@ -1,0 +1,1 @@
+C:\Users\Shadow\Documents\GitHub\Followerbot\GW Launcher\obj\Debug\net8.0-windows\GW Launcher.csproj.AssemblyReference.cache
