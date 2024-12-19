@@ -22,6 +22,7 @@ import PyOverlay
 import PyQuest
 import PyPathing
 
+from .IconsFontAwesome5 import *
 from .Map import *
 from .ImGui import *
 from .Agent import *

@@ -8,6 +8,14 @@ module_name = "Spiker Follower"
 # Add this near the top with other global variables
 is_following = False
 is_attacking = False
+start_time = time.time()
+was_loading = False
+current_location = ""
+current_map_id = 0
+current_map_type = "Unknown"
+script_paused = False
+was_following = False
+was_attacking = False
 
 class GameAreas:
     def __init__(self):
@@ -495,12 +503,69 @@ def runfollower():
         Py4GW.Console.Log(module_name, f"Stack trace: {traceback.format_exc()}", Py4GW.Console.MessageType.Error)
     finally:
         pass
+
+def cleanup():
+    """Reset all global states and clean up processes."""
+    global is_following, is_attacking
+    is_following = False
+    is_attacking = False
+    Py4GW.Console.Log("Follower", "Cleaned up all processes.", Py4GW.Console.MessageType.Info)
+
+def CheckCurrentLocation():
+    global current_location, current_map_id, current_map_type, script_paused, is_following, is_attacking, was_following, was_attacking
+    try:
+        if script_paused:
+            if Map.IsMapReady():  # If map is ready, resume script
+                script_paused = False
+                # Automatically reactivate the bot
+                if was_following:
+                    is_following = True
+                if was_attacking:
+                    is_attacking = True
+                Py4GW.Console.Log(module_name, "Map loaded. Resuming script.", Py4GW.Console.MessageType.Info)
+        else:
+            if Map.IsMapReady():
+                current_map_id = Map.GetMapID()
+                if Map.IsOutpost():
+                    current_map_type = "Outpost"
+                    current_location = Map.GetMapName()
+                elif Map.IsExplorable():
+                    current_map_type = "Explorable"
+                    current_location = Map.GetMapName()
+                else:
+                    current_map_type = "Unknown"
+                    current_location = Map.GetMapName()
+            else:
+                script_paused = True  # If map isn't ready, pause script
+                # Store current state before pausing
+                was_following = is_following
+                was_attacking = is_attacking
+                # Temporarily disable bot
+                is_following = False
+                is_attacking = False
+                Py4GW.Console.Log(module_name, "Map change detected. Pausing script.", Py4GW.Console.MessageType.Warning)
+    except Exception as e:
+        Py4GW.Console.Log(module_name, f"Error in CheckCurrentLocation: {str(e)}", Py4GW.Console.MessageType.Error)
+
 def main():
+    global is_following, is_attacking
+    
+    # Only proceed if map is ready and party is loaded
+    if not Map.IsMapReady() or not Party.IsPartyLoaded():
+        return
+    
+    # Check location and map status
+    CheckCurrentLocation()
+    
+    # Draw the window
     DrawWindow()
-    if is_following:
-        runfollower()
-    if is_attacking:
-        runbot()
+    
+    # Only run bot functions if script isn't paused
+    if not script_paused:
+        if is_following:
+            runfollower()
+        if is_attacking:
+            runbot()
 
 # This ensures that Main() is called when the script is executed directly.
 if __name__ == "__main__":

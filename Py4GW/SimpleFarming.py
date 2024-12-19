@@ -4,7 +4,7 @@ from Extendedcorelib import *
 module_name = "FarmingBot"
 outpost_coordinate_list = [
 ( -4268, 11628),
-( -5490, 13672)
+( -5490, 13672) # Single coordinate for outpost
 ]
 
 map_paths = { 
@@ -154,8 +154,6 @@ class StateMachineVars:
             self.current_loot_target = None
             self.current_chest_target = 0
             self.completed_chests = []
-            self.bounty_npc = Routines.Movement.PathHandler([(-8394, -9801)])  # Add Bounty NPC path
-            self.has_bounty = False  # Add tracking for bounty status
 
 FSM_vars = StateMachineVars()
 
@@ -486,60 +484,131 @@ def ExecuteSkills():
                 return  # Exit after casting a skill to avoid overlapping casts
 
 def Take_Bounty():
-    global FSM_vars
-    try:
-        Player.SendDialog(int("0x85", 16))  # First dialog
-        SetPendingAction(1000)  # 1000ms delay
-        Player.SendDialog(int("0x86", 16))  # Second dialog
-        SetPendingAction(500)   # 500ms delay
-        
-        current_map_id = Map.GetMapID()
-        Py4GW.Console.Log(bot_vars.window_module.module_name, f"Current Map ID: {current_map_id}", Py4GW.Console.MessageType.Info)
-        
-        if current_map_id in map_paths:
-            FSM_vars.has_bounty = True
-            FSM_vars.has_resigned = False
-            FSM_vars.finished_resigning = False
-            FSM_vars.movement_handler.reset()
-            
-            FSM_vars.current_map_id = current_map_id
-            FSM_vars.current_map_pathing = Routines.Movement.PathHandler(map_paths[current_map_id])
-            
-            FSM_vars.farm_machine.reset()
-            FSM_vars.path_to_farm_machine.reset()
-            
-            return True
-            
-        else:
-            Py4GW.Console.Log(bot_vars.window_module.module_name, f"No path found for map {current_map_id}", Py4GW.Console.MessageType.Error)
-            return False
-            
-    except Exception as e:
-        Py4GW.Console.Log(bot_vars.window_module.module_name, f"Error in Take_Bounty: {str(e)}", Py4GW.Console.MessageType.Error)
+    """Interact with the NPC to take the bounty."""
+    if IfActionIsPending():
         return False
+    Player.SendDialog(int("0x85", 16))  # First dialog
+    SetPendingAction(1000)
+    Player.SendDialog(int("0x86", 16))  # Second dialog
+    return True
 
-def ResetEnvironment():
-    global FSM_vars
-    FSM_vars.outpost_pathing.reset()
-    FSM_vars.movement_handler.reset()
-    FSM_vars.state_machine.reset()
-    FSM_vars.path_to_farm_machine.reset()
-    FSM_vars.loot_items.reset()
-    FSM_vars.farm_machine.reset()
-    FSM_vars.fight_enemies.reset()
-    FSM_vars.timer.stop()
-    FSM_vars.timer_check = 0
-    FSM_vars.finished_resigning = False
-    FSM_vars.has_resigned = False
-    FSM_vars.map_loaded = False
-    FSM_vars.explorable_loading = False
-    FSM_vars.state_machine.log_actions = False
-    FSM_vars.current_map_pathing = Routines.Movement.PathHandler([])
-    FSM_vars.current_target = None
-    FSM_vars.current_loot_target = None
-    FSM_vars.current_chest_target = 0
-    FSM_vars.completed_chests = []
-    FSM_vars.has_bounty = False  # Add reset for bounty status
+FSM_vars.loot_items.AddState(name="Select Item",
+                    execute_fn=lambda: FSM_vars.current_loot_target != None and Player.ChangeTarget(FSM_vars.current_loot_target),
+                    transition_delay_ms=1000)
+FSM_vars.loot_items.AddState(name="PickUpItem",
+                    execute_fn=lambda: FSM_vars.current_loot_target != None and Routines.Targeting.InteractTarget(),
+                    transition_delay_ms=1000)
+FSM_vars.loot_items.AddState(name="Wait for Loot to Finish",
+                    exit_condition=lambda: WaitForLoot(),
+                    run_once=False)
+
+# FSM Routine for looting chests only
+FSM_vars.loot_chest.AddState(name="CheckForChest",
+                    execute_fn=lambda: CheckForChest())
+FSM_vars.loot_chest.AddState(name="Reset Follow Path To Chest",
+                    execute_fn=lambda: ResetFollowPathToChest())
+FSM_vars.loot_chest.AddState(name="MoveToChest",
+                    execute_fn=lambda: Routines.Movement.FollowPath(FSM_vars.chest_found_pathing, FSM_vars.movement_handler),
+                    exit_condition=lambda: Routines.Movement.IsFollowPathFinished(FSM_vars.chest_found_pathing, FSM_vars.movement_handler),
+                    run_once=False)
+FSM_vars.loot_chest.AddState(name="Select Chest",
+                    execute_fn=lambda: Player.ChangeTarget(FSM_vars.current_chest_target),
+                    transition_delay_ms=1000)
+FSM_vars.loot_chest.AddState(name="Track Chest",
+                    exit_condition=lambda: TrackChest(),
+                    transition_delay_ms=1000)
+FSM_vars.loot_chest.AddState(name="Interact with Chest",
+                    execute_fn=lambda: Routines.Targeting.InteractTarget(),
+                    transition_delay_ms=1000)
+FSM_vars.loot_chest.AddState(name="Open With Lockpick",
+                    execute_fn=lambda: Player.SendDialog(2),
+                    transition_delay_ms=1000)
+FSM_vars.loot_chest.AddState(name="Finished")
+
+
+FSM_vars.fight_enemies.AddState(name="Target Enemy",
+                    execute_fn=lambda: Player.ChangeTarget(FSM_vars.current_target),
+                    transition_delay_ms=500)
+FSM_vars.fight_enemies.AddState(name="Engage Enemy",
+                    execute_fn=lambda: Routines.Targeting.InteractTarget(),
+                    transition_delay_ms=500)
+FSM_vars.fight_enemies.AddState(name="Wait for Combat to Finish",
+                    execute_fn=lambda: ExecuteSkills(),
+                    exit_condition=lambda: not Agent.IsAlive(FSM_vars.current_target) or PlayerDied(),
+                    run_once=False)
+FSM_vars.fight_enemies.AddState(name="Check for Next Enemy",
+                    exit_condition=lambda: not EnemyFound() or not Agent.IsAlive(Player.GetAgentID()), # if no enemies found or if Player died, then we are finished
+                    run_once=False)
+
+# Farming Map Routine
+FSM_vars.farm_machine.AddState(name="Check if Alive",
+                       exit_condition=lambda: Agent.IsAlive(Player.GetAgentID()),
+                       run_once=False)
+FSM_vars.farm_machine.AddState(name="Seek for Farm",
+                       execute_fn=lambda: Routines.Movement.FollowPath(FSM_vars.current_map_pathing, FSM_vars.movement_handler),
+                       exit_condition=lambda: Routines.Movement.IsFollowPathFinished(FSM_vars.current_map_pathing, FSM_vars.movement_handler) or EnemyFound() or ChestFound() or Map.GetMapID() != FSM_vars.current_map_id,
+                       run_once=False)
+FSM_vars.farm_machine.AddSubroutine(name="Engage Farm",
+                       sub_fsm = FSM_vars.fight_enemies,
+                       condition_fn=lambda: not EnemyFound() or not Agent.IsAlive(Player.GetAgentID()))
+FSM_vars.farm_machine.AddSubroutine(name="Loot Chest",
+                       sub_fsm=FSM_vars.loot_chest,
+                       condition_fn=lambda: not ChestFound() or not Agent.IsAlive(Player.GetAgentID()))
+FSM_vars.farm_machine.AddSubroutine(name="Loot Items",
+                       sub_fsm=FSM_vars.loot_items,
+                       condition_fn=lambda: not LootFound() or not Agent.IsAlive(Player.GetAgentID()))
+FSM_vars.farm_machine.AddState(name="Reset pather to find nearest point",
+                       execute_fn=lambda: ResetPathing(FSM_vars.current_map_pathing) if not Routines.Movement.IsFollowPathFinished(FSM_vars.current_map_pathing, FSM_vars.movement_handler) else None,
+                       run_once=True)
+FSM_vars.farm_machine.AddState(name="Finished")
+
+# Pathing to Farm Routine
+FSM_vars.path_to_farm_machine.AddState(name="Check For Pathing Map",
+                        execute_fn=lambda: CheckForMap(),
+                        exit_condition=lambda: FSM_vars.current_map_id != 0,
+                        run_once=False)
+FSM_vars.path_to_farm_machine.AddState(name="Reset Movement", # after mapping into new zone, need to prevent previous coord from trying to finish
+                       execute_fn=lambda: FSM_vars.movement_handler.reset(), 
+                       transition_delay_ms=1200)
+FSM_vars.path_to_farm_machine.AddSubroutine(name="Handle Map Pathing",
+                       sub_fsm = FSM_vars.farm_machine,
+                       condition_fn=lambda: IsCurrentPathFinished() or Map.GetMapID() != FSM_vars.current_map_id) # if path finished or not in same map, then move on
+
+#MAIN STATE MACHINE CONFIGURATION
+FSM_vars.state_machine.AddState(name="Map Check for Farm", 
+                       execute_fn=lambda: CheckMapLocation(),
+                       transition_delay_ms=1000,
+                       run_once=False)
+FSM_vars.state_machine.AddState(name="Load SkillBar",
+                       execute_fn=lambda: LoadSkillBar(),
+                       transition_delay_ms=1000,
+                       exit_condition=lambda: IsSkillBarLoaded())
+FSM_vars.state_machine.AddState(name="Leaving Outpost",
+                       execute_fn=lambda: Routines.Movement.FollowPath(FSM_vars.outpost_pathing, FSM_vars.movement_handler),
+                       exit_condition=lambda: Routines.Movement.IsFollowPathFinished(FSM_vars.outpost_pathing, FSM_vars.movement_handler) or Map.IsMapLoading(),
+                       run_once=False) # run once is false because we want to keep updating the pathing objects
+FSM_vars.state_machine.AddState(name="Waiting for Explorable Map Load",
+                       exit_condition=lambda: Routines.Transition.IsExplorableLoaded(log_actions=True),
+                       transition_delay_ms=1200)
+FSM_vars.state_machine.AddState(name="Reset Movement", # after mapping into new zone, need to prevent previous coord from trying to finish
+                       execute_fn=lambda: FSM_vars.movement_handler.reset(), 
+                       transition_delay_ms=1200)
+FSM_vars.state_machine.AddSubroutine(name="Start Pathing for Farm",
+                       sub_fsm = FSM_vars.path_to_farm_machine, # use farm_machine for the farm map, path_to_farm_machine to path to the farm zone
+                       condition_fn=lambda: Map.GetMapID() == bot_vars.farm_end_id and IsCurrentPathFinished())
+FSM_vars.state_machine.AddState(name="Resign",
+                       execute_fn=lambda: Resign(),
+                       run_once=False,
+                       transition_delay_ms=1000)
+FSM_vars.state_machine.AddState(name="Wait if no resign",
+                       exit_condition=bot_vars.resign_to_farm, # this will hold unless it gets check (prevents unintentional resign after incomplete vanquish)
+                       run_once=False)
+FSM_vars.state_machine.AddState(name="Finished")
+
+# Add a new state to the FSM for taking the bounty
+FSM_vars.state_machine.AddState(name="Get Blessing",
+    execute_fn=lambda: Take_Bounty(),
+    transition_delay_ms=1500)
 
 def DrawWindow():
     global bot_vars, FSM_vars
@@ -571,6 +640,7 @@ def DrawWindow():
                     bot_vars.pick_up_chests = PyImGui.checkbox("Loot Chests?", bot_vars.pick_up_chests)
                     bot_vars.load_skillbar = PyImGui.checkbox("Load SkillBar?", bot_vars.load_skillbar)
 
+
                     headers = ["Farm Stats","Data"]
                     data = [
                         ("Farm Count:", f"{bot_vars.farm_count}"),
@@ -580,8 +650,7 @@ def DrawWindow():
                         ("Farm Timer:", f"{format_elapsed_time(bot_vars.farm_timer.get_elapsed_time())}"),
                         ("Current Map ID:", f"{Map.GetMapID()}"),
                         ("Var Map ID:", f"{FSM_vars.current_map_id}"),
-                        ("Current Target:", f"{FSM_vars.current_target}"),
-                        ("Has Bounty:", f"{FSM_vars.has_bounty}")
+                        ("Current Target:", f"{FSM_vars.current_target}") 
                     ]
 
                     ImGui.table("State Machine Info", headers, data)
@@ -593,12 +662,12 @@ def DrawWindow():
                         if FSM_vars.state_machine != None:
                             FSM_vars.state_machine.jump_to_state_by_name("Resign")
 
-                    PyImGui.end_tab_item()
-
+                    PyImGui.end_tab_item() # end Farm Options
+            
                 # State Machine Debugger
                 if PyImGui.begin_tab_item("State Machine Debugging"):
                     PyImGui.separator()
-                    
+
                     if FSM_vars.state_machine != None:
                         fsm_previous_step = FSM_vars.state_machine.get_previous_step_name()
                         fsm_current_step = FSM_vars.state_machine.get_current_step_name()
@@ -617,9 +686,100 @@ def DrawWindow():
 
                         ImGui.table("State Machine Info", headers, data)
 
-                    PyImGui.end_tab_item()
+                    if FSM_vars.path_to_farm_machine != None:
+                        fsm_previous_step = FSM_vars.path_to_farm_machine.get_previous_step_name()
+                        fsm_current_step = FSM_vars.path_to_farm_machine.get_current_step_name()
+                        fsm_next_step = FSM_vars.path_to_farm_machine.get_next_step_name()
 
-                PyImGui.end_tab_bar()
+                        headers = ["Path To Farm Machine","Data"]
+                        data = [
+                            ("Previous Step:", f"{fsm_previous_step}"),
+                            ("Current Step:", f"{fsm_current_step}"),
+                            ("Next Step:", f"{fsm_next_step}"),
+                            ("State Machine is started:", f"{FSM_vars.path_to_farm_machine.is_started()}"),
+                            ("State Machine is finished:", f"{FSM_vars.path_to_farm_machine.is_finished()}"),
+                            ("Action Timer:", f"{FSM_vars.timer.get_elapsed_time():.2f}"),
+                            ("Action Timer Check:", f"{FSM_vars.timer_check}")
+                        ]
+
+                        ImGui.table("Path To Farm Machine Info", headers, data)
+
+                    if FSM_vars.farm_machine != None:
+                        fsm_previous_step = FSM_vars.farm_machine.get_previous_step_name()
+                        fsm_current_step = FSM_vars.farm_machine.get_current_step_name()
+                        fsm_next_step = FSM_vars.farm_machine.get_next_step_name()
+
+                        headers = ["Farm Machine","Data"]
+                        data = [
+                            ("Previous Step:", f"{fsm_previous_step}"),
+                            ("Current Step:", f"{fsm_current_step}"),
+                            ("Next Step:", f"{fsm_next_step}"),
+                            ("State Machine is started:", f"{FSM_vars.farm_machine.is_started()}"),
+                            ("State Machine is finished:", f"{FSM_vars.farm_machine.is_finished()}"),
+                            ("Action Timer:", f"{FSM_vars.timer.get_elapsed_time():.2f}"),
+                            ("Action Timer Check:", f"{FSM_vars.timer_check}")
+                        ]
+
+                        ImGui.table("Farm Machine State Machine Info", headers, data)
+
+                    if FSM_vars.fight_enemies != None:
+                        fsm_previous_step = FSM_vars.fight_enemies.get_previous_step_name()
+                        fsm_current_step = FSM_vars.fight_enemies.get_current_step_name()
+                        fsm_next_step = FSM_vars.fight_enemies.get_next_step_name()
+
+                        headers = ["Fight Enemies Machine","Data"]
+                        data = [
+                            ("Previous Step:", f"{fsm_previous_step}"),
+                            ("Current Step:", f"{fsm_current_step}"),
+                            ("Next Step:", f"{fsm_next_step}"),
+                            ("State Machine is started:", f"{FSM_vars.fight_enemies.is_started()}"),
+                            ("State Machine is finished:", f"{FSM_vars.fight_enemies.is_finished()}"),
+                            ("Action Timer:", f"{FSM_vars.timer.get_elapsed_time():.2f}"),
+                            ("Action Timer Check:", f"{FSM_vars.timer_check}")
+                        ]
+
+                        ImGui.table("Fight Enemies State Machine Info", headers, data)
+
+                    if FSM_vars.loot_chest != None:
+                        fsm_previous_step = FSM_vars.loot_chest.get_previous_step_name()
+                        fsm_current_step = FSM_vars.loot_chest.get_current_step_name()
+                        fsm_next_step = FSM_vars.loot_chest.get_next_step_name()
+
+                        headers = ["Loot Chest Machine","Data"]
+                        data = [
+                            ("Previous Step:", f"{fsm_previous_step}"),
+                            ("Current Step:", f"{fsm_current_step}"),
+                            ("Next Step:", f"{fsm_next_step}"),
+                            ("State Machine is started:", f"{FSM_vars.loot_chest.is_started()}"),
+                            ("State Machine is finished:", f"{FSM_vars.loot_chest.is_finished()}"),
+                            ("Action Timer:", f"{FSM_vars.timer.get_elapsed_time():.2f}"),
+                            ("Action Timer Check:", f"{FSM_vars.timer_check}")
+                        ]
+
+                        ImGui.table("Loot Items Machine Info", headers, data)
+
+                    if FSM_vars.loot_items != None:
+                        fsm_previous_step = FSM_vars.loot_items.get_previous_step_name()
+                        fsm_current_step = FSM_vars.loot_items.get_current_step_name()
+                        fsm_next_step = FSM_vars.loot_items.get_next_step_name()
+
+                        headers = ["Loot Chest Machine","Data"]
+                        data = [
+                            ("Previous Step:", f"{fsm_previous_step}"),
+                            ("Current Step:", f"{fsm_current_step}"),
+                            ("Next Step:", f"{fsm_next_step}"),
+                            ("State Machine is started:", f"{FSM_vars.loot_items.is_started()}"),
+                            ("State Machine is finished:", f"{FSM_vars.loot_items.is_finished()}"),
+                            ("Action Timer:", f"{FSM_vars.timer.get_elapsed_time():.2f}"),
+                            ("Action Timer Check:", f"{FSM_vars.timer_check}")
+                        ]
+
+                        ImGui.table("Loot Items Machine Info", headers, data)
+                    PyImGui.separator()
+
+                    PyImGui.end_tab_item() # end State Machine Debugging
+
+                PyImGui.end_tab_bar() # end Skelefarm Options
 
             PyImGui.end()
 
@@ -627,6 +787,28 @@ def DrawWindow():
         current_function = inspect.currentframe().f_code.co_name
         Py4GW.Console.Log(bot_vars.window_module.module_name, f"Error in {current_function}: {str(e)}", Py4GW.Console.MessageType.Error)
         raise
+
+def ResetEnvironment():
+    global FSM_vars
+    FSM_vars.outpost_pathing.reset()
+    FSM_vars.movement_handler.reset()
+    FSM_vars.state_machine.reset()
+    FSM_vars.path_to_farm_machine.reset()
+    FSM_vars.loot_items.reset()
+    FSM_vars.farm_machine.reset()
+    FSM_vars.fight_enemies.reset()
+    FSM_vars.timer.stop()
+    FSM_vars.timer_check = 0
+    FSM_vars.finished_resigning = False
+    FSM_vars.has_resigned = False
+    FSM_vars.map_loaded = False
+    FSM_vars.explorable_loading = False
+    FSM_vars.state_machine.log_actions = False
+    FSM_vars.current_map_pathing = Routines.Movement.PathHandler([])
+    FSM_vars.current_target = None
+    FSM_vars.current_loot_target = None
+    FSM_vars.current_chest_target = 0
+    FSM_vars.completed_chests = []
 
 def main():
     global bot_vars,FSM_vars

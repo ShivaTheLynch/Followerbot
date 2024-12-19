@@ -73,14 +73,20 @@ class DebugWindow:
 
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        log_entry = f"[{timestamp}] {message}\n"
+        # Single line break between entries
+        log_entry = f"\r\n[{timestamp}] {message}\r\n"
         self.log_messages.append(log_entry)
         
-        # Join all messages and set text
+        # Join all messages with explicit line breaks
         full_log = "".join(self.log_messages)
-        win32gui.SetWindowText(self.edit_hwnd, full_log)
         
-        # Scroll to bottom
+        # Set text and force update
+        win32gui.SendMessage(self.edit_hwnd, win32con.WM_SETTEXT, 0, full_log)
+        
+        # Force scroll to bottom
+        length = win32gui.SendMessage(self.edit_hwnd, win32con.WM_GETTEXTLENGTH, 0, 0)
+        win32gui.SendMessage(self.edit_hwnd, win32con.EM_SETSEL, length, length)
+        win32gui.SendMessage(self.edit_hwnd, win32con.EM_LINESCROLL, 0, 0xffff)
         win32gui.SendMessage(self.edit_hwnd, win32con.EM_SCROLLCARET, 0, 0)
 
 class GWLauncher:
@@ -102,6 +108,8 @@ class GWLauncher:
         self.ID_DELETE = 1004
         self.ID_SELECT_DLL = 1005
         self.ID_TOGGLE_DLL = 1006
+        self.ID_SELECT_TOOLBOX = 1007  # New ID for toolbox selection
+        self.ID_TOGGLE_TOOLBOX = 1008  # New ID for toolbox toggle
         
         # Track which account was right-clicked
         self.selected_account: Optional[Account] = None
@@ -112,6 +120,10 @@ class GWLauncher:
         # Add DLL settings
         self.dll_path = self.load_dll_path()
         self.dll_enabled = self.load_dll_enabled()
+        
+        # Add Toolbox settings
+        self.toolbox_path = self.load_toolbox_path()
+        self.toolbox_enabled = self.load_toolbox_enabled()
         
         # Register main window class
         wc = win32gui.WNDCLASS()
@@ -136,7 +148,7 @@ class GWLauncher:
             style,
             win32con.CW_USEDEFAULT,
             win32con.CW_USEDEFAULT,
-            300, 400,
+            500, 600,
             0, 0,
             0, None
         )
@@ -191,71 +203,125 @@ class GWLauncher:
         rect = win32gui.GetClientRect(self.hwnd)
         
         try:
-            # Create memory DC for double buffering
             memdc = win32gui.CreateCompatibleDC(hdc)
             bitmap = win32gui.CreateCompatibleBitmap(hdc, rect[2], rect[3])
             old_bitmap = win32gui.SelectObject(memdc, bitmap)
             
             try:
-                # Clear background
-                brush = win32gui.GetStockObject(win32con.WHITE_BRUSH)
-                win32gui.FillRect(memdc, rect, brush)
+                # Store original text color and background mode
+                old_text_color = win32gui.GetTextColor(memdc)
+                old_bk_mode = win32gui.GetBkMode(memdc)
+                
+                # Clear background to black
+                black_brush = win32gui.CreateSolidBrush(win32api.RGB(0, 0, 0))
+                win32gui.FillRect(memdc, rect, black_brush)
+                win32gui.DeleteObject(black_brush)
                 
                 # Draw accounts list with buttons
-                y = 5
+                y = 10
                 for account in self.accounts:
+                    # Set text color to white for better contrast on black background
+                    win32gui.SetTextColor(memdc, win32api.RGB(255, 255, 255))
+                    win32gui.SetBkMode(memdc, win32con.TRANSPARENT)
+                    
                     # Account text
                     text = f"{account.title or account.character} - {account.state}"
                     win32gui.DrawText(
                         memdc, text, -1,
-                        (5, y, rect[2]-205, y+20),  # Reduced width to make room for buttons
+                        (10, y, rect[2]-305, y+25),
                         win32con.DT_LEFT | win32con.DT_VCENTER | win32con.DT_SINGLELINE | win32con.DT_END_ELLIPSIS
                     )
                     
                     # Draw buttons
-                    button_width = 60
-                    button_spacing = 5
-                    button_x = rect[2] - (button_width * 3 + button_spacing * 2)
+                    button_width = 80
+                    button_spacing = 10
+                    button_x = rect[2] - (button_width * 3 + button_spacing * 2) - 10
                     
-                    # Launch button
-                    win32gui.Rectangle(memdc, button_x, y, button_x + button_width, y + 20)
+                    # Launch button - Green
+                    green_brush = win32gui.CreateSolidBrush(0x00008000)  # RGB(0, 128, 0) - Green
+                    old_brush = win32gui.SelectObject(memdc, green_brush)
+                    win32gui.Rectangle(memdc, button_x, y, button_x + button_width, y + 25)
+                    win32gui.SelectObject(memdc, old_brush)
+                    win32gui.DeleteObject(green_brush)
+                    
+                    # Set text color to white for Launch button
+                    win32gui.SetTextColor(memdc, 0x00FFFFFF)
                     win32gui.DrawText(memdc, "Launch", -1,
-                        (button_x, y, button_x + button_width, y + 20),
+                        (button_x, y, button_x + button_width, y + 25),
                         win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE
                     )
                     
-                    # Edit button
+                    # Edit button - Purple
                     button_x += button_width + button_spacing
-                    win32gui.Rectangle(memdc, button_x, y, button_x + button_width, y + 20)
+                    purple_brush = win32gui.CreateSolidBrush(win32api.RGB(128, 0, 128))  # Purple
+                    old_brush = win32gui.SelectObject(memdc, purple_brush)
+                    win32gui.Rectangle(memdc, button_x, y, button_x + button_width, y + 25)
+                    win32gui.SelectObject(memdc, old_brush)
+                    win32gui.DeleteObject(purple_brush)
+                    
+                    # White text for Edit button
+                    win32gui.SetTextColor(memdc, 0x00FFFFFF)
                     win32gui.DrawText(memdc, "Edit", -1,
-                        (button_x, y, button_x + button_width, y + 20),
+                        (button_x, y, button_x + button_width, y + 25),
                         win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE
                     )
                     
-                    # Delete button
+                    # Delete button - Red
                     button_x += button_width + button_spacing
-                    win32gui.Rectangle(memdc, button_x, y, button_x + button_width, y + 20)
+                    red_brush = win32gui.CreateSolidBrush(0x000000FF)  # RGB(255, 0, 0) - Red
+                    old_brush = win32gui.SelectObject(memdc, red_brush)
+                    win32gui.Rectangle(memdc, button_x, y, button_x + button_width, y + 25)
+                    win32gui.SelectObject(memdc, old_brush)
+                    win32gui.DeleteObject(red_brush)
+                    
+                    # White text for Delete button
+                    win32gui.SetBkMode(memdc, win32con.TRANSPARENT)
+                    win32gui.SetTextColor(memdc, 0x00FFFFFF)
+                    
                     win32gui.DrawText(memdc, "Delete", -1,
-                        (button_x, y, button_x + button_width, y + 20),
+                        (button_x, y, button_x + button_width, y + 25),
                         win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE
                     )
                     
-                    y += 25
+                    # Restore original text color and background mode
+                    win32gui.SetTextColor(memdc, old_text_color)
+                    win32gui.SetBkMode(memdc, old_bk_mode)
+                    
+                    y += 35
                 
                 # Draw bottom buttons
-                bottom_y = rect[3] - 30
+                bottom_y = rect[3] - 40
+                button_width = 120
                 
-                # Add Account button
-                win32gui.Rectangle(memdc, 5, bottom_y, 105, bottom_y + 25)
+                # Add Account button - Light Green
+                light_green_brush = win32gui.CreateSolidBrush(win32api.RGB(144, 238, 144))
+                old_brush = win32gui.SelectObject(memdc, light_green_brush)
+                win32gui.Rectangle(memdc, 10, bottom_y, 10 + button_width, bottom_y + 30)
+                win32gui.SelectObject(memdc, old_brush)
+                win32gui.DeleteObject(light_green_brush)
+                
+                # Set text properties for Add Account button
+                old_bk_mode = win32gui.SetBkMode(memdc, win32con.TRANSPARENT)
+                win32gui.SetTextColor(memdc, win32api.RGB(0, 0, 0))
+                
                 win32gui.DrawText(memdc, "Add Account", -1,
-                    (5, bottom_y, 105, bottom_y + 25),
+                    (10, bottom_y, 10 + button_width, bottom_y + 30),
                     win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE
                 )
                 
-                # DLL Options button
-                win32gui.Rectangle(memdc, 115, bottom_y, 215, bottom_y + 25)
+                # DLL Options button - Dark Blue
+                dark_blue_brush = win32gui.CreateSolidBrush(win32api.RGB(0, 0, 139))  # Dark blue color
+                old_brush = win32gui.SelectObject(memdc, dark_blue_brush)
+                win32gui.Rectangle(memdc, 140, bottom_y, 140 + button_width, bottom_y + 30)
+                win32gui.SelectObject(memdc, old_brush)
+                win32gui.DeleteObject(dark_blue_brush)
+                
+                # Set text properties for DLL Options button (white text)
+                win32gui.SetTextColor(memdc, win32api.RGB(255, 255, 255))
+                win32gui.SetBkMode(memdc, win32con.TRANSPARENT)
+                
                 win32gui.DrawText(memdc, "DLL Options", -1,
-                    (115, bottom_y, 215, bottom_y + 25),
+                    (140, bottom_y, 140 + button_width, bottom_y + 30),
                     win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE
                 )
                 
@@ -478,6 +544,31 @@ class GWLauncher:
             if process_handle:
                 kernel32.CloseHandle(process_handle)
 
+    def inject_toolbox(self, pid):
+        """Inject GWToolboxdll.dll into the process"""
+        if not self.toolbox_enabled:
+            return True  # Skip if disabled
+            
+        if not self.toolbox_path or not os.path.exists(self.toolbox_path):
+            self.debug_window.log("GWToolbox DLL path not valid")
+            return False
+
+        self.debug_window.log(f"Injecting GWToolbox from: {self.toolbox_path}")
+        
+        # Store original DLL path
+        original_dll_path = self.dll_path
+        
+        try:
+            # Temporarily set dll_path to toolbox path
+            self.dll_path = self.toolbox_path
+            # Use existing inject_dll method
+            result = self.inject_dll(pid)
+            self.debug_window.log("GWToolbox injection " + ("successful" if result else "failed"))
+            return result
+        finally:
+            # Restore original DLL path
+            self.dll_path = original_dll_path
+
     def wait_for_gw_window(self, pid, timeout=30):
         """Wait for GW window to be created and fully loaded"""
         self.debug_window.log(f"Waiting for GW window (PID: {pid})")
@@ -557,7 +648,6 @@ class GWLauncher:
             else:
                 self.debug_window.log(f"Launched and patched GW with PID: {pid}")
 
-
             if self.dll_enabled:
                 def injection_thread():
                     try:
@@ -576,11 +666,30 @@ class GWLauncher:
                                 self.debug_window.log("Process no longer exists")
                                 return
                             
-                            self.debug_window.log("Attempting DLL injection...")
-                            if self.inject_dll(pid):
-                                self.debug_window.log("DLL injection successful")
+                            # First inject GWToolboxdll.dll
+                            self.debug_window.log("Attempting GWToolboxdll.dll injection...")
+                            if self.inject_toolbox(pid):
+                                self.debug_window.log("GWToolboxdll.dll injection successful")
+                                
+                                # Wait 30 seconds before injecting the other DLL
+                                self.debug_window.log("Waiting 30 seconds before injecting configured DLL...")
+                                time.sleep(30)
+                                
+                                # Verify process is still running before second injection
+                                try:
+                                    process = psutil.Process(pid)
+                                    if process.status() == psutil.STATUS_RUNNING:
+                                        self.debug_window.log("Attempting configured DLL injection...")
+                                        if self.inject_dll(pid):
+                                            self.debug_window.log("Configured DLL injection successful")
+                                        else:
+                                            self.debug_window.log("Configured DLL injection failed")
+                                    else:
+                                        self.debug_window.log("Process no longer running, skipping configured DLL injection")
+                                except psutil.NoSuchProcess:
+                                    self.debug_window.log("Process no longer exists, skipping configured DLL injection")
                             else:
-                                self.debug_window.log("DLL injection failed")
+                                self.debug_window.log("GWToolboxdll.dll injection failed")
                         else:
                             self.debug_window.log("Failed to detect GW window")
                     except Exception as e:
@@ -612,23 +721,23 @@ class GWLauncher:
         width = rect[2]
         
         # Check if click is on bottom buttons
-        bottom_y = rect[3] - 30
-        if bottom_y <= y <= bottom_y + 25:
-            if 5 <= x <= 105:  # Add Account button
+        bottom_y = rect[3] - 40
+        if bottom_y <= y <= bottom_y + 30:
+            if 10 <= x <= 130:  # Add Account button
                 self.debug_window.log("Add Account button clicked")
                 self.show_account_dialog()
                 return
-            elif 115 <= x <= 215:  # DLL Options button
+            elif 140 <= x <= 260:  # DLL Options button
                 self.debug_window.log("DLL Options button clicked")
                 self.show_dll_options()
                 return
         
         # Check if click is on account buttons
-        account_idx = y // 25
+        account_idx = (y - 10) // 35
         if 0 <= account_idx < len(self.accounts):
-            button_width = 60
-            button_spacing = 5
-            button_x = width - (button_width * 3 + button_spacing * 2)
+            button_width = 80
+            button_spacing = 10
+            button_x = width - (button_width * 3 + button_spacing * 2) - 10
             
             if button_x <= x <= button_x + button_width:  # Launch button
                 self.debug_window.log(f"Launch button clicked for account {account_idx}")
@@ -681,21 +790,25 @@ class GWLauncher:
         command = win32api.LOWORD(wparam)
         
         if command == self.ID_LAUNCH and self.selected_account:
-            # Only check for DLL if injection is enabled
+            # Check for both DLLs if enabled
+            dll_check_needed = False
             if self.dll_enabled and not self.dll_path:
+                dll_check_needed = True
+            if self.toolbox_enabled and not self.toolbox_path:
+                dll_check_needed = True
+                
+            if dll_check_needed:
                 result = ctypes.windll.user32.MessageBoxW(
                     self.hwnd,
-                    "DLL injection is enabled but no DLL is selected. Would you like to select one now?",
+                    "One or more DLLs are enabled but not selected. Would you like to select them now?",
                     "DLL Selection",
                     win32con.MB_YESNO | win32con.MB_ICONQUESTION
                 )
                 if result == win32con.IDYES:
-                    if self.select_dll():
-                        self.launch_gw(self.selected_account)
-                else:
-                    self.debug_window.log("Launch cancelled - no DLL selected")
-            else:
-                self.launch_gw(self.selected_account)
+                    self.show_dll_options()
+                    return
+            
+            self.launch_gw(self.selected_account)
             
         elif command == self.ID_ADD:
             self.show_account_dialog()
@@ -715,13 +828,29 @@ class GWLauncher:
             self.dll_enabled = not self.dll_enabled
             self.save_settings()
             self.debug_window.log(f"DLL injection {'enabled' if self.dll_enabled else 'disabled'}")
+        
+        elif command == self.ID_SELECT_TOOLBOX:
+            self.select_toolbox()
+            
+        elif command == self.ID_TOGGLE_TOOLBOX:
+            self.toolbox_enabled = not self.toolbox_enabled
+            self.save_settings()
+            self.debug_window.log(f"GWToolbox injection {'enabled' if self.toolbox_enabled else 'disabled'}")
 
     def show_account_dialog(self, account: Optional[Account] = None):
         self.debug_window.log("Opening account dialog...")
         
-        # Dialog dimensions - adjusted for content
-        DIALOG_WIDTH = 400
-        DIALOG_HEIGHT = 400  # Increased height
+        # Dialog dimensions and constants
+        DIALOG_WIDTH = 500
+        INITIAL_HEIGHT = 450  # Initial height, will be adjusted later
+        SPACING = 45
+        LABEL_WIDTH = 120
+        EDIT_WIDTH = 300
+        BTN_WIDTH = 90
+        BTN_HEIGHT = 30
+        BTN_SPACING = 20
+        BOTTOM_MARGIN = 50
+        RIGHT_MARGIN = 30
         
         # Create dialog window
         dialog_class = "GWAccountDialog"
@@ -747,15 +876,15 @@ class GWLauncher:
         screen_width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
         screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
         x = (screen_width - DIALOG_WIDTH) // 2
-        y = (screen_height - DIALOG_HEIGHT) // 2
+        y = (screen_height - INITIAL_HEIGHT) // 2
         
-        # Create dialog window
+        # Create dialog window with initial height
         style = win32con.WS_POPUP | win32con.WS_CAPTION | win32con.WS_SYSMENU
         self.dialog_hwnd = win32gui.CreateWindow(
             dialog_class,
             "Add Account" if not account else "Edit Account",
             style,
-            x, y, DIALOG_WIDTH, DIALOG_HEIGHT,
+            x, y, DIALOG_WIDTH, INITIAL_HEIGHT,
             self.hwnd, 0, 0, None
         )
         
@@ -764,8 +893,7 @@ class GWLauncher:
         
         # Create controls
         self.controls = {}
-        y_pos = 20
-        SPACING = 35  # Consistent spacing
+        y_pos = 30  # Initial y position
         
         # Labels and text inputs
         fields = [
@@ -780,7 +908,7 @@ class GWLauncher:
             win32gui.CreateWindow(
                 "STATIC", label,
                 win32con.WS_CHILD | win32con.WS_VISIBLE,
-                20, y_pos, 100, 20,
+                30, y_pos, LABEL_WIDTH, 20,
                 self.dialog_hwnd, 0, 0, None
             )
             
@@ -792,7 +920,7 @@ class GWLauncher:
             edit_hwnd = win32gui.CreateWindow(
                 "EDIT", "",
                 style,
-                130, y_pos, 240, 20,
+                LABEL_WIDTH + 40, y_pos, EDIT_WIDTH, 22,
                 self.dialog_hwnd, 0, 0, None
             )
             
@@ -806,14 +934,14 @@ class GWLauncher:
         win32gui.CreateWindow(
             "STATIC", "Guild Wars Path:",
             win32con.WS_CHILD | win32con.WS_VISIBLE,
-            20, y_pos, 100, 20,
+            30, y_pos, LABEL_WIDTH, 20,
             self.dialog_hwnd, 0, 0, None
         )
         
         self.controls["gwpath"] = win32gui.CreateWindow(
             "EDIT", account.gwpath if account else "",
             win32con.WS_CHILD | win32con.WS_VISIBLE | win32con.WS_BORDER,
-            130, y_pos, 200, 20,
+            LABEL_WIDTH + 40, y_pos, EDIT_WIDTH - 80, 22,
             self.dialog_hwnd, 0, 0, None
         )
         
@@ -821,7 +949,7 @@ class GWLauncher:
         self.browse_btn = win32gui.CreateWindow(
             "BUTTON", "Browse",
             win32con.WS_CHILD | win32con.WS_VISIBLE | win32con.BS_PUSHBUTTON,
-            340, y_pos, 40, 20,
+            LABEL_WIDTH + 40 + EDIT_WIDTH - 70, y_pos, 70, 22,
             self.dialog_hwnd, 1001, 0, None
         )
         
@@ -831,14 +959,14 @@ class GWLauncher:
         win32gui.CreateWindow(
             "STATIC", "Extra Arguments:",
             win32con.WS_CHILD | win32con.WS_VISIBLE,
-            20, y_pos, 100, 20,
+            30, y_pos, LABEL_WIDTH, 20,
             self.dialog_hwnd, 0, 0, None
         )
         
         self.controls["extraargs"] = win32gui.CreateWindow(
             "EDIT", account.extraargs if account else "",
             win32con.WS_CHILD | win32con.WS_VISIBLE | win32con.WS_BORDER,
-            130, y_pos, 240, 20,
+            LABEL_WIDTH + 40, y_pos, EDIT_WIDTH, 22,
             self.dialog_hwnd, 0, 0, None
         )
         
@@ -848,33 +976,38 @@ class GWLauncher:
         self.controls["elevated"] = win32gui.CreateWindow(
             "BUTTON", "Run as Administrator",
             win32con.WS_CHILD | win32con.WS_VISIBLE | win32con.BS_AUTOCHECKBOX,
-            20, y_pos, 200, 20,
+            30, y_pos, 200, 20,
             self.dialog_hwnd, 0, 0, None
         )
         
         if account and account.elevated:
             win32gui.SendMessage(self.controls["elevated"], win32con.BM_SETCHECK, 1, 0)
         
-        y_pos += SPACING
+        # Calculate final positions
+        button_y = y_pos + SPACING
+        final_height = button_y + BTN_HEIGHT + BOTTOM_MARGIN
         
-        # Button spacing from bottom
-        BUTTON_MARGIN = 20
-        button_y = DIALOG_HEIGHT - 45 - BUTTON_MARGIN  # 45 is button height + margin
+        # Resize dialog to fit all controls
+        win32gui.SetWindowPos(
+            self.dialog_hwnd, None,
+            x, y, DIALOG_WIDTH, final_height,
+            win32con.SWP_NOZORDER | win32con.SWP_NOMOVE
+        )
         
-        # OK/Cancel buttons
+        # Create OK/Cancel buttons
         self.ok_btn = win32gui.CreateWindow(
             "BUTTON", "OK",
             win32con.WS_CHILD | win32con.WS_VISIBLE | win32con.BS_PUSHBUTTON,
-            DIALOG_WIDTH - 180, button_y,
-            70, 25,
+            DIALOG_WIDTH - (BTN_WIDTH * 2 + BTN_SPACING + RIGHT_MARGIN), button_y,
+            BTN_WIDTH, BTN_HEIGHT,
             self.dialog_hwnd, 1002, 0, None
         )
         
         self.cancel_btn = win32gui.CreateWindow(
             "BUTTON", "Cancel",
             win32con.WS_CHILD | win32con.WS_VISIBLE | win32con.BS_PUSHBUTTON,
-            DIALOG_WIDTH - 90, button_y,
-            70, 25,
+            DIALOG_WIDTH - (BTN_WIDTH + RIGHT_MARGIN), button_y,
+            BTN_WIDTH, BTN_HEIGHT,
             self.dialog_hwnd, 1003, 0, None
         )
         
@@ -1044,13 +1177,37 @@ class GWLauncher:
         except Exception as e:
             return False
 
+    def load_settings(self):
+        """Load all settings from file"""
+        settings_file = os.path.join(self.app_directory, "settings.json")
+        try:
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            self.debug_window.log(f"Error loading settings: {str(e)}")
+            return {}
+
+    def load_toolbox_path(self):
+        """Load Toolbox path from settings file"""
+        settings = self.load_settings()
+        return settings.get('toolbox_path', '')
+
+    def load_toolbox_enabled(self):
+        """Load Toolbox enabled setting from settings file"""
+        settings = self.load_settings()
+        return settings.get('toolbox_enabled', False)
+
     def save_settings(self):
         """Save all settings to file"""
         settings_file = os.path.join(self.app_directory, "settings.json")
         try:
             settings = {
                 'dll_path': self.dll_path,
-                'dll_enabled': self.dll_enabled
+                'dll_enabled': self.dll_enabled,
+                'toolbox_path': self.toolbox_path,
+                'toolbox_enabled': self.toolbox_enabled
             }
             
             with open(settings_file, 'w') as f:
@@ -1060,11 +1217,43 @@ class GWLauncher:
         except Exception as e:
             self.debug_window.log(f"Error saving settings: {str(e)}")
 
+    def select_toolbox(self):
+        """Open file dialog to select GWToolbox DLL"""
+        try:
+            flags = win32con.OFN_FILEMUSTEXIST | win32con.OFN_PATHMUSTEXIST
+            filter_str = "DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0"
+            
+            filename = win32gui.GetOpenFileNameW(
+                Filter=filter_str,
+                Title="Select GWToolbox DLL",
+                Flags=flags
+            )[0]
+            
+            if filename:
+                self.toolbox_path = filename
+                self.save_settings()
+                self.debug_window.log(f"Selected and saved new Toolbox DLL: {filename}")
+                return True
+            return False
+        except Exception as e:
+            self.debug_window.log(f"Error selecting Toolbox DLL: {str(e)}")
+            return False
+
     def show_dll_options(self):
         menu = win32gui.CreatePopupMenu()
-        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SELECT_DLL, "Select DLL")
+        
+        # Custom DLL options
+        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SELECT_DLL, "Select Custom DLL")
         flags = win32con.MF_STRING | (win32con.MF_CHECKED if self.dll_enabled else win32con.MF_UNCHECKED)
-        win32gui.AppendMenu(menu, flags, self.ID_TOGGLE_DLL, "Enable DLL Injection")
+        win32gui.AppendMenu(menu, flags, self.ID_TOGGLE_DLL, "Enable Custom DLL")
+        
+        # Add separator
+        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
+        
+        # Toolbox options
+        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SELECT_TOOLBOX, "Select GWToolbox DLL")
+        flags = win32con.MF_STRING | (win32con.MF_CHECKED if self.toolbox_enabled else win32con.MF_UNCHECKED)
+        win32gui.AppendMenu(menu, flags, self.ID_TOGGLE_TOOLBOX, "Enable GWToolbox")
         
         rect = win32gui.GetClientRect(self.hwnd)
         pt = win32gui.ClientToScreen(self.hwnd, (115, rect[3] - 30))

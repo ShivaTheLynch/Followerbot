@@ -222,6 +222,8 @@ class Inventory:
         if not inventory.IsSalvaging():
             inventory.StartSalvage(salvage_kit_id, item_id)
 
+        #you add the dialgos HERE!!!!!
+
         if inventory.IsSalvaging() and inventory.IsSalvageTransactionDone():
             inventory.FinishSalvage()
 
