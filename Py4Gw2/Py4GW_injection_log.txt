@@ -1,6 +1,0 @@
-2024-12-04 22:17:58 [INFO] Starting injection process.
-2024-12-04 22:17:58 [INFO] installing event handler.
-2024-12-04 22:17:58 [INFO] Installed input event handler, oldwndproc = 0x%X
-
-2024-12-04 22:17:58 [INFO] DLL Initialize complete.
-2024-12-04 22:17:58 [INFO] Main thread Created.
